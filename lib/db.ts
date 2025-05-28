@@ -1,25 +1,50 @@
 import Database from "better-sqlite3"
 import { hash, compare } from "bcryptjs"
 import { randomBytes } from "crypto"
+import fs from "fs"
+import path from "path"
 
-// Initialize the database
-const db = new Database("edutech.db")
+// Ensure the database directory exists
+const dbDir = path.join(process.cwd(), "data")
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true })
+}
 
-// Create tables if they don't exist
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT,
-    firstName TEXT NOT NULL,
-    lastName TEXT NOT NULL,
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    resetToken TEXT,
-    resetTokenExpiry DATETIME,
-    provider TEXT,
-    providerAccountId TEXT
-  );
-`)
+// Initialize the database with a path that works in both development and production
+const dbPath = path.join(dbDir, "edutech.db")
+let db: any
+
+// Use a try-catch block to handle potential initialization errors
+try {
+  db = new Database(dbPath)
+
+  // Create tables if they don't exist
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      password TEXT,
+      firstName TEXT NOT NULL,
+      lastName TEXT NOT NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      resetToken TEXT,
+      resetTokenExpiry DATETIME,
+      provider TEXT,
+      providerAccountId TEXT
+    );
+  `)
+} catch (error) {
+  console.error("Database initialization error:", error)
+  // Provide a fallback for environments where SQLite can't be used
+  db = {
+    prepare: () => ({
+      get: () => null,
+      all: () => [],
+      run: () => ({ changes: 0, lastInsertRowid: 0 }),
+    }),
+    exec: () => {},
+  }
+}
 
 // Initialize default user
 async function initializeDefaultUser() {
@@ -39,7 +64,9 @@ async function initializeDefaultUser() {
 }
 
 // Call initialization
-initializeDefaultUser()
+if (process.env.NODE_ENV !== "production") {
+  initializeDefaultUser()
+}
 
 export interface User {
   id: number

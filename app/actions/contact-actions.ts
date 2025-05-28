@@ -1,21 +1,42 @@
 "use server"
 
 import Database from "better-sqlite3"
+import fs from "fs"
+import path from "path"
+
+// In-memory storage for contact messages when SQLite is not available
+const contactMessages = []
 
 // Initialize the database
-const db = new Database("edutech.db")
+let db: any
 
-// Create contact messages table if it doesn't exist
-db.exec(`
-  CREATE TABLE IF NOT EXISTS contact_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    message TEXT NOT NULL,
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`)
+try {
+  // Ensure the database directory exists
+  const dbDir = path.join(process.cwd(), "data")
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true })
+  }
+
+  // Initialize the database with a path that works in both development and production
+  const dbPath = path.join(dbDir, "edutech.db")
+  db = new Database(dbPath)
+
+  // Create contact messages table if it doesn't exist
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contact_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      message TEXT NOT NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `)
+} catch (error) {
+  console.error("Database initialization error:", error)
+  // Provide a fallback for environments where SQLite can't be used
+  db = null
+}
 
 export async function submitContactForm(formData: FormData) {
   const name = formData.get("name") as string
@@ -46,11 +67,28 @@ export async function submitContactForm(formData: FormData) {
   }
 
   try {
-    // Insert the message into the database
-    const stmt = db.prepare("INSERT INTO contact_messages (name, email, subject, message) VALUES (?, ?, ?, ?)")
-    const result = stmt.run(name, email, subject, message)
+    if (db) {
+      // Insert the message into the database
+      const stmt = db.prepare("INSERT INTO contact_messages (name, email, subject, message) VALUES (?, ?, ?, ?)")
+      const result = stmt.run(name, email, subject, message)
 
-    if (result.changes > 0) {
+      if (result.changes > 0) {
+        return {
+          success: true,
+          message: "Your message has been sent successfully. We'll get back to you soon!",
+        }
+      }
+    } else {
+      // Use in-memory storage when SQLite is not available
+      contactMessages.push({
+        id: contactMessages.length + 1,
+        name,
+        email,
+        subject,
+        message,
+        createdAt: new Date().toISOString(),
+      })
+
       return {
         success: true,
         message: "Your message has been sent successfully. We'll get back to you soon!",

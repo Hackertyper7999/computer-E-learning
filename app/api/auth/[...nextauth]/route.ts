@@ -3,6 +3,10 @@ import GoogleProvider from "next-auth/providers/google"
 import FacebookProvider from "next-auth/providers/facebook"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { userService } from "@/lib/db"
+import { mockUserService } from "@/lib/mock-db"
+
+// Use the appropriate service based on environment
+const authService = process.env.USE_MOCK_DB === "true" ? mockUserService : userService
 
 // Configure NextAuth
 const handler = NextAuth({
@@ -26,17 +30,21 @@ const handler = NextAuth({
           return null
         }
 
-        const result = await userService.loginUser({
-          email: credentials.email,
-          password: credentials.password,
-        })
+        try {
+          const result = await authService.loginUser({
+            email: credentials.email,
+            password: credentials.password,
+          })
 
-        if (result.success && result.user) {
-          return {
-            id: String(result.user.id),
-            email: result.user.email,
-            name: `${result.user.firstName} ${result.user.lastName}`,
+          if (result.success && result.user) {
+            return {
+              id: String(result.user.id),
+              email: result.user.email,
+              name: `${result.user.firstName} ${result.user.lastName}`,
+            }
           }
+        } catch (error) {
+          console.error("Authentication error:", error)
         }
 
         return null
@@ -51,22 +59,22 @@ const handler = NextAuth({
         if (account.provider === "google" || account.provider === "facebook") {
           try {
             // Check if user exists
-            const existingUser = await userService.findUserByEmail(user.email as string)
-            
+            const existingUser = await authService.findUserByEmail(user.email as string)
+
             if (!existingUser) {
               // Create new user from OAuth data
               const names = (user.name || "").split(" ")
               const firstName = names[0] || ""
               const lastName = names.slice(1).join(" ") || ""
-              
-              const newUser = await userService.createOAuthUser({
+
+              const newUser = await authService.createOAuthUser({
                 email: user.email as string,
                 firstName,
                 lastName,
                 provider: account.provider,
                 providerAccountId: account.providerAccountId,
               })
-              
+
               if (newUser.success && newUser.user) {
                 token.id = String(newUser.user.id)
               }
@@ -77,7 +85,7 @@ const handler = NextAuth({
             console.error("Error handling OAuth sign in:", error)
           }
         }
-        
+
         return {
           ...token,
           id: user.id,
